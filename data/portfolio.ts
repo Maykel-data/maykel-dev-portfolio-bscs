@@ -49,6 +49,10 @@ export type Project = {
 /* Profile                                                             */
 /* ------------------------------------------------------------------ */
 
+const basePath =
+  process.env.NEXT_PUBLIC_BASE_PATH ??
+  (process.env.NODE_ENV === "production" ? "/maykel-dev-portfolio-bscs" : "");
+
 export const profile = {
   name: "Michael Jhosh T. Abundabar",
   firstName: "Michael Jhosh",
@@ -58,7 +62,7 @@ export const profile = {
   email: "mjabundabar@gmail.com",
   linkedin: "https://www.linkedin.com/in/michael-jhosh-t-abundabar-2b7209347",
   /** Local copy of the Aug 25, 2026 CV. */
-  resumeUrl: "/documents/michael-abundabar-cv.pdf",
+  resumeUrl: `${basePath}/documents/michael-abundabar-cv.pdf`,
   /** Hero one-liner. */
   intro:
     "I build and test web applications with Python and SQL — and I enjoy tracing the bugs that keep them from working.",
@@ -128,7 +132,7 @@ export const certifications: Certification[] = [
     name: "Python for Data Science, AI & Development",
     issuer: "IBM (Coursera)",
     date: "Nov 2025",
-    image: "/images/certificates/cert-python.jpg",
+    image: `${basePath}/images/certificates/cert-python.jpg`,
     href: "https://coursera.org/verify/BCQUCLRAVOXL",
   },
   {
@@ -136,7 +140,7 @@ export const certifications: Certification[] = [
     name: "Introduction to Critical Infrastructure Protection",
     issuer: "OPSWAT",
     date: "Jan 2025",
-    image: "/images/certificates/cert-opswat.jpg",
+    image: `${basePath}/images/certificates/cert-opswat.jpg`,
     href: "https://learn.opswatacademy.com/certificate/_znPZAU4nA",
   },
   {
@@ -144,7 +148,7 @@ export const certifications: Certification[] = [
     name: "Learn SQL in 3 Hours: A Tutorial for Fast Learners",
     issuer: "Udemy (OCSALY Academy)",
     date: "Dec 2024",
-    image: "/images/certificates/cert-sql.jpg",
+    image: `${basePath}/images/certificates/cert-sql.jpg`,
     href: "https://ude.my/UC-0f5026d1-4150-4212-b919-dce4a74d2855",
   },
 ];

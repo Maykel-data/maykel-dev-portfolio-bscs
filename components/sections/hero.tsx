@@ -91,7 +91,7 @@ export default function Hero() {
 
           <div className="relative h-full w-full max-w-[460px] [mask-image:linear-gradient(to_bottom,black_84%,transparent_100%)]">
             <Image
-              src="/images/michael-transparent.png"
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? (process.env.NODE_ENV === "production" ? "/maykel-dev-portfolio-bscs" : "")}/images/michael-transparent.png`}
               alt="Portrait of Michael Jhosh T. Abundabar"
               fill
               priority
