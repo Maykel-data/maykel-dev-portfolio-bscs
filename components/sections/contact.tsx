@@ -23,7 +23,7 @@ export default function Contact() {
             href={profile.linkedin}
             target="_blank"
             rel="noreferrer noopener"
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2 text-muted-foreground transition-colors hover:text-foreground"
           >
             LinkedIn
           </a>
@@ -31,7 +31,7 @@ export default function Contact() {
             href={profile.resumeUrl}
             target="_blank"
             rel="noreferrer noopener"
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-block py-2 text-muted-foreground transition-colors hover:text-foreground"
           >
             Download CV
           </a>

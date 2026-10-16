@@ -65,7 +65,10 @@ const INDEX = 0.052; // the index down the right-hand side
 const CULL = 1.6;
 
 /** How much of a wheel-notch or a dragged pixel counts as one item. */
-const WHEEL_UNITS = 900;
+// ponytail: 160 lets one standard wheel notch (~100 deltaY) cross the 0.5
+// settle threshold, so a notch always produces a visible, lasting turn
+// instead of being consumed and snapped back (audit-confirmed defect).
+const WHEEL_UNITS = 160;
 const DRAG_UNITS = 420;
 /** Quiet time after the last wheel event before the wheel settles on an item. */
 const SETTLE = 140;
@@ -121,6 +124,8 @@ export function WorksWheel({
   // everything else is written to the DOM, so turning the wheel is not a render.
   const turn = React.useRef(0);
   const target = React.useRef(0);
+  // Re-arms the rAF loop from any input path; null while unmounted.
+  const wakeRef = React.useRef<(() => void) | null>(null);
   const [active, setActive] = React.useState(0);
   const [stage, setStage] = React.useState<Stage>({ w: 0, h: 0 });
 
@@ -173,14 +178,17 @@ export function WorksWheel({
     };
   }, [stage, count]);
 
-  // One pass per frame: ease toward the target, then write every transform.
+  // One pass per frame while easing toward the target, then write every
+  // transform. The loop sleeps once converged - `to()` re-arms it on every
+  // input path (wheel, drag, keys, index buttons) - so an idle wheel, on
+  // screen or off, costs no frames.
   React.useEffect(() => {
     if (!stage.h) return;
     let frame = 0;
     const { ringR, ringScale, drumR, bow } = metrics;
 
     const draw = () => {
-      frame = requestAnimationFrame(draw);
+      frame = 0;
       const gap = target.current - turn.current;
       if (Math.abs(gap) < 0.0005) turn.current = target.current;
       else turn.current += gap * (reduced ? 1 : EASE);
@@ -223,15 +231,27 @@ export function WorksWheel({
       if (titleRef.current) titleRef.current.style.opacity = String(m);
       const near = clamp(Math.round(pos), 0, last);
       setActive((prev) => (prev === near ? prev : near));
+
+      // Schedule the next pass only while there is distance left to close.
+      if (turn.current !== target.current) frame = requestAnimationFrame(draw);
     };
 
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
+    const wake = () => {
+      if (!frame) frame = requestAnimationFrame(draw);
+    };
+    wakeRef.current = wake;
+    // Draw once with the current metrics, then sleep if already converged.
+    wake();
+    return () => {
+      cancelAnimationFrame(frame);
+      wakeRef.current = null;
+    };
   }, [metrics, stage.h, count, last, reduced]);
 
   const to = React.useCallback(
     (next: number) => {
       target.current = clamp(next, 0, last + 1);
+      wakeRef.current?.();
     },
     [last],
   );
@@ -334,6 +354,7 @@ export function WorksWheel({
                       src={item.image}
                       alt={item.title}
                       draggable={false}
+                      loading="lazy"
                       className="size-full object-contain bg-black/40 p-1"
                     />
                     {action && item.href ? (
@@ -395,7 +416,7 @@ export function WorksWheel({
               type="button"
               onClick={() => to(i + 1)}
               className={cn(
-                "focus-visible:outline-foreground cursor-pointer transition-all outline-none focus-visible:outline-1 text-xs md:text-sm px-2 py-0.5 rounded-md",
+                "focus-visible:outline-foreground cursor-pointer transition-all outline-none focus-visible:outline-1 text-xs md:text-sm px-3 py-2 rounded-md",
                 i === active
                   ? "text-foreground font-semibold bg-white/10 text-white"
                   : "text-muted-foreground/70 hover:text-foreground hover:bg-white/5",

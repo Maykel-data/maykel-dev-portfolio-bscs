@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, lazy, useRef, useEffect } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 
 const Spline = lazy(() => import("@splinetool/react-spline"));
 
@@ -10,70 +10,56 @@ interface SplineSceneProps {
 }
 
 interface SplineRuntimeApp {
-  _eventManager?: {
-    updateUseWindowEvents?: (enable: boolean) => void;
-    eventContext?: {
-      domRect: DOMRect | { left: number; top: number; width: number; height: number };
-      useWindowEvents?: boolean;
-    };
-  };
-  eventManager?: {
-    updateUseWindowEvents?: (enable: boolean) => void;
-    eventContext?: {
-      domRect: DOMRect | { left: number; top: number; width: number; height: number };
-      useWindowEvents?: boolean;
-    };
-  };
-  setGlobalEvents?: (enable: boolean) => void;
-  _controls?: {
-    updateUseWindowEvents?: (enable: boolean) => void;
-  };
   requestRender?: () => void;
 }
 
 export function SplineScene({ scene, className }: SplineSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const splineAppRef = useRef<SplineRuntimeApp | null>(null);
+  // The 3D scene is expensive (runtime + ~1.4 MB of cross-origin assets), so
+  // it only mounts - and therefore only downloads - once its container gets
+  // close to the viewport. It stays mounted afterwards.
+  const [nearViewport, setNearViewport] = useState(false);
 
   useEffect(() => {
-    const updateDomRect = () => {
-      const container = containerRef.current;
-      const app = splineAppRef.current;
-      if (!container || !app) return;
+    const container = containerRef.current;
+    if (!container || nearViewport) return;
+    if (typeof IntersectionObserver === "undefined") {
+      // Ancient-browser fallback: defer one tick so we never setState
+      // synchronously inside the effect body.
+      const t = window.setTimeout(() => setNearViewport(true), 0);
+      return () => window.clearTimeout(t);
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          io.disconnect();
+          setNearViewport(true);
+        }
+      },
+      { rootMargin: "0px 0px 500px 0px" },
+    );
+    io.observe(container);
+    return () => io.disconnect();
+  }, [nearViewport]);
+
+  // Pointer forwarding is scoped to this card. The previous implementation
+  // listened on window, measured canvas geometry on every pointer move and
+  // every scroll, and dispatched synthetic events page-wide. Native canvas
+  // hover-tracking covers the canvas itself; this only extends the follow to
+  // the surrounding panel, with no layout reads at all.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !nearViewport) return;
+    const reduced = window
+      .matchMedia("(prefers-reduced-motion: reduce)")
+      .matches;
+
+    const onMove = (e: MouseEvent | PointerEvent) => {
+      if (reduced) return;
       const canvas = container.querySelector("canvas");
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      if (app.eventManager?.eventContext) {
-        app.eventManager.eventContext.domRect = rect;
-      }
-      if (app._eventManager?.eventContext) {
-        app._eventManager.eventContext.domRect = rect;
-      }
-    };
-
-    const handleGlobalMove = (e: MouseEvent | PointerEvent) => {
-      const container = containerRef.current;
-      if (!container) return;
-      const canvas = container.querySelector("canvas");
-      if (!canvas) return;
-
-      // Keep domRect in sync with viewport scroll and 3D tilt
-      const app = splineAppRef.current;
-      const rect = canvas.getBoundingClientRect();
-      if (app?.eventManager?.eventContext) {
-        app.eventManager.eventContext.domRect = rect;
-      }
-      if (app?._eventManager?.eventContext) {
-        app._eventManager.eventContext.domRect = rect;
-      }
-
-      // If the pointer is already directly over the canvas, let the native listener handle it
-      if (e.target === canvas) return;
-
+      if (!canvas || e.target === canvas) return;
       const pointerEvent = e as PointerEvent;
-
-      // Forward synthetic pointermove to canvas with accurate pageX & pageY for Spline's raycaster
       const pointerEv = new PointerEvent("pointermove", {
         bubbles: true,
         cancelable: true,
@@ -103,62 +89,47 @@ export function SplineScene({ scene, className }: SplineSceneProps) {
       Object.defineProperty(mouseEv, "pageY", { value: e.pageY, configurable: true });
       canvas.dispatchEvent(mouseEv);
 
-      if (splineAppRef.current?.requestRender) {
-        splineAppRef.current.requestRender();
-      }
+      splineAppRef.current?.requestRender?.();
     };
 
-    window.addEventListener("pointermove", handleGlobalMove, { passive: true });
-    window.addEventListener("mousemove", handleGlobalMove, { passive: true });
-    window.addEventListener("scroll", updateDomRect, { passive: true });
-
+    container.addEventListener("pointermove", onMove, { passive: true });
+    container.addEventListener("mousemove", onMove, { passive: true });
     return () => {
-      window.removeEventListener("pointermove", handleGlobalMove);
-      window.removeEventListener("mousemove", handleGlobalMove);
-      window.removeEventListener("scroll", updateDomRect);
+      container.removeEventListener("pointermove", onMove);
+      container.removeEventListener("mousemove", onMove);
     };
-  }, []);
+  }, [nearViewport]);
 
   const handleSplineLoad = (app: SplineRuntimeApp) => {
+    // Window-level ("global") Spline events stay off: the robot tracks the
+    // cursor over its own card, which the scoped listeners above cover.
     splineAppRef.current = app;
-    try {
-      if (typeof app.setGlobalEvents === "function") {
-        app.setGlobalEvents(true);
-      }
-      if (app._controls?.updateUseWindowEvents) {
-        app._controls.updateUseWindowEvents(true);
-      }
-      const canvas = containerRef.current?.querySelector("canvas");
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        if (app.eventManager?.eventContext) {
-          app.eventManager.eventContext.domRect = rect;
-        }
-        if (app._eventManager?.eventContext) {
-          app._eventManager.eventContext.domRect = rect;
-        }
-      }
-    } catch {
-      // safe fallback
-    }
   };
 
   return (
     <div ref={containerRef} className={`relative ${className || ""}`}>
-      <Suspense
-        fallback={
-          <div className="flex h-full w-full items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
-          </div>
-        }
-      >
-        <Spline
-          scene={scene}
-          onLoad={handleSplineLoad}
-          className="h-full w-full pointer-events-auto"
-        />
-      </Suspense>
+      {nearViewport ? (
+        <Suspense
+          fallback={
+            <div className="flex h-full w-full items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+            </div>
+          }
+        >
+          <Spline
+            scene={scene}
+            onLoad={handleSplineLoad}
+            className="h-full w-full pointer-events-auto"
+          />
+        </Suspense>
+      ) : (
+        <div
+          className="flex h-full w-full items-center justify-center"
+          aria-hidden="true"
+        >
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+        </div>
+      )}
     </div>
   );
 }
-

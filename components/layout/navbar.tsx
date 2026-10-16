@@ -18,7 +18,7 @@ export default function Navbar() {
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6 md:px-10">
         <a
           href="#top"
-          className="text-sm font-medium tracking-tight text-foreground transition-colors hover:text-brand"
+          className="py-2 text-sm font-medium tracking-tight text-foreground transition-colors hover:text-brand"
           onClick={() => setOpen(false)}
         >
           Michael Jhosh T. Abundabar
@@ -29,7 +29,7 @@ export default function Navbar() {
             <a
               key={link.href}
               href={link.href}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               {link.label}
             </a>
@@ -38,7 +38,7 @@ export default function Navbar() {
 
         <button
           type="button"
-          className="flex h-9 w-9 flex-col items-center justify-center gap-1.5 md:hidden"
+          className="flex h-11 w-11 flex-col items-center justify-center gap-1.5 md:hidden"
           aria-expanded={open}
           aria-controls="mobile-nav"
           aria-label={open ? "Close menu" : "Open menu"}

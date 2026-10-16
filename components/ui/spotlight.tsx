@@ -1,7 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { motion, useSpring, useTransform, type SpringOptions } from "framer-motion";
+import {
+  motion,
+  useReducedMotion,
+  useSpring,
+  useTransform,
+  type SpringOptions,
+} from "framer-motion";
 import { cn } from "@/lib/utils";
 
 type SpotlightProps = {
@@ -10,9 +16,14 @@ type SpotlightProps = {
   springOptions?: SpringOptions;
 };
 
+/** Near-instant spring used under prefers-reduced-motion: no self-animation. */
+const REDUCED_MOTION_SPRING = { bounce: 0, damping: 120, stiffness: 4000 };
+
 /**
   * Global spotlight that tracks mouse position everywhere across the whole viewport/system.
   * Never gets clipped by section boundaries, never vanishes on scroll, and leaves no horizontal seams.
+  * GPU-friendly: moves with x/y transforms, only subscribes on devices with a
+  * fine pointer, and settles instantly under reduced motion.
   */
 export function GlobalSpotlight({
   className,
@@ -20,21 +31,45 @@ export function GlobalSpotlight({
   springOptions = { bounce: 0, damping: 28, stiffness: 220 },
 }: SpotlightProps) {
   const [isVisible, setIsVisible] = useState(false);
-  const mouseX = useSpring(-1000, springOptions);
-  const mouseY = useSpring(-1000, springOptions);
+  const [finePointer, setFinePointer] = useState(false);
+  const reduce = useReducedMotion();
 
-  const spotlightLeft = useTransform(mouseX, (x) => `${x - size / 2}px`);
-  const spotlightTop = useTransform(mouseY, (y) => `${y - size / 2}px`);
+  const mouseX = useSpring(-1000, reduce ? REDUCED_MOTION_SPRING : springOptions);
+  const mouseY = useSpring(-1000, reduce ? REDUCED_MOTION_SPRING : springOptions);
+
+  const spotlightX = useTransform(mouseX, (x) => x - size / 2);
+  const spotlightY = useTransform(mouseY, (y) => y - size / 2);
+
+  const visibleRef = useRef(false);
 
   useEffect(() => {
+    const mq = window.matchMedia("(pointer: fine)");
+    const read = () => setFinePointer(mq.matches);
+    read();
+    mq.addEventListener("change", read);
+    return () => mq.removeEventListener("change", read);
+  }, []);
+
+  useEffect(() => {
+    if (!finePointer) return;
+
     const onMouseMove = (e: MouseEvent) => {
       mouseX.set(e.clientX);
       mouseY.set(e.clientY);
-      if (!isVisible) setIsVisible(true);
+      if (!visibleRef.current) {
+        visibleRef.current = true;
+        setIsVisible(true);
+      }
     };
 
-    const onMouseLeave = () => setIsVisible(false);
-    const onMouseEnter = () => setIsVisible(true);
+    const onMouseLeave = () => {
+      visibleRef.current = false;
+      setIsVisible(false);
+    };
+    const onMouseEnter = () => {
+      visibleRef.current = true;
+      setIsVisible(true);
+    };
 
     window.addEventListener("mousemove", onMouseMove, { passive: true });
     document.addEventListener("mouseleave", onMouseLeave);
@@ -45,7 +80,9 @@ export function GlobalSpotlight({
       document.removeEventListener("mouseleave", onMouseLeave);
       document.removeEventListener("mouseenter", onMouseEnter);
     };
-  }, [mouseX, mouseY, isVisible]);
+  }, [finePointer, mouseX, mouseY]);
+
+  if (!finePointer) return null;
 
   return (
     <div
@@ -62,8 +99,8 @@ export function GlobalSpotlight({
         style={{
           width: size,
           height: size,
-          left: spotlightLeft,
-          top: spotlightTop,
+          x: spotlightX,
+          y: spotlightY,
         }}
       />
     </div>

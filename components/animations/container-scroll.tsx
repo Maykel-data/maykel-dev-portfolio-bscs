@@ -50,7 +50,14 @@ export function ContainerScroll({
       ref={containerRef}
       className="relative flex min-h-[50rem] items-center justify-center p-2 pt-16 md:min-h-[60rem] md:p-10 md:pt-20"
     >
-      <div className="relative w-full py-4 md:py-8" style={{ perspective: "1000px" }}>
+      {/* overflow-x-clip: the 3D-tilted card's perspective-projected bounds
+          exceed the viewport around ~1024px and create page-level horizontal
+          scroll (audit-confirmed). Scoped here only - the clipped part was
+          already outside the visible area. */}
+      <div
+        className="relative w-full overflow-x-clip py-4 md:py-8"
+        style={{ perspective: "1000px" }}
+      >
         <Header titleComponent={titleComponent} />
         <Card rotate={rotate} scale={scale}>
           {children}
