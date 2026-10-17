@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
 /* ------------------------------------------------------------------
    GLOBAL THEME — single dark theme, no light/dark switching anywhere.
@@ -79,11 +78,7 @@
     @apply font-sans;
     scroll-padding-top: 5.5rem;
   }
-  @media (prefers-reduced-motion: no-preference) {
-    html {
-      scroll-behavior: smooth;
-    }
-  }
+  /* Native smooth scroll removed to prevent severe frame-drop and lag conflicts with GSAP ScrollTrigger */
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "ss01" on;

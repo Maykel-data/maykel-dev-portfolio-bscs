@@ -39,27 +39,24 @@ export function ContainerScroll({
   const scaleRange: [number, number] = reducedMotion
     ? [1, 1]
     : isMobile
-      ? [0.85, 1]
-      : [1.05, 1];
+      ? [0.92, 1]
+      : [0.96, 1];
 
-  const rotate = useTransform(scrollYProgress, [0, 1], reducedMotion ? [0, 0] : [16, 0]);
+  const yRange: [number, number] = reducedMotion ? [0, 0] : [30, 0];
+  const opacityRange: [number, number] = reducedMotion ? [1, 1] : [0.88, 1];
+
   const scale = useTransform(scrollYProgress, [0, 1], scaleRange);
+  const y = useTransform(scrollYProgress, [0, 1], yRange);
+  const opacity = useTransform(scrollYProgress, [0, 0.35], opacityRange);
 
   return (
     <div
       ref={containerRef}
       className="relative flex min-h-[50rem] items-center justify-center p-2 pt-16 md:min-h-[60rem] md:p-10 md:pt-20"
     >
-      {/* overflow-x-clip: the 3D-tilted card's perspective-projected bounds
-          exceed the viewport around ~1024px and create page-level horizontal
-          scroll (audit-confirmed). Scoped here only - the clipped part was
-          already outside the visible area. */}
-      <div
-        className="relative w-full overflow-x-clip py-4 md:py-8"
-        style={{ perspective: "1000px" }}
-      >
+      <div className="relative w-full overflow-x-clip py-4 md:py-8">
         <Header titleComponent={titleComponent} />
-        <Card rotate={rotate} scale={scale}>
+        <Card scale={scale} y={y}>
           {children}
         </Card>
       </div>
@@ -80,23 +77,21 @@ function Header({
 }
 
 function Card({
-  rotate,
   scale,
+  y,
   children,
 }: {
-  rotate: MotionValue<number>;
   scale: MotionValue<number>;
+  y: MotionValue<number>;
   children: React.ReactNode;
 }) {
   return (
     <motion.div
       style={{
-        rotateX: rotate,
         scale,
-        boxShadow:
-          "0 0 #00000066, 0 9px 24px #00000059, 0 37px 37px #0000004d, 0 84px 50px #0000002e, 0 149px 60px #0000000f",
+        y,
       }}
-      className="mx-auto mt-4 h-[32rem] w-full max-w-5xl rounded-[28px] border border-line bg-surface p-2 shadow-2xl md:mt-6 md:h-[42rem] md:p-4"
+      className="mx-auto mt-4 h-[32rem] w-full max-w-5xl rounded-[28px] border border-line bg-surface p-2 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.85)] md:mt-6 md:h-[42rem] md:p-4 will-change-transform [transform:translateZ(0)]"
     >
       <div className="h-full w-full overflow-hidden rounded-[20px] bg-surface-2 md:p-4">
         {children}

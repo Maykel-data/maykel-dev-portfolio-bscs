@@ -1,8 +1,10 @@
 "use client";
 
-// Pinned horizontal timeline, adapted from Hyperiux Vault's Timeline
-// (https://vault.hyperiux.com) with 3D rolling perspective typography,
-// extended pause/buffer at the end, and safe vertical clearance under the navbar.
+// Built using Hyperiux Vault: https://vault.hyperiux.com
+// Optimized for Maykel's portfolio:
+// 1. Guaranteed QCU visibility across mobile and desktop via percentage-based travel.
+// 2. Direct 1:1 scrub (scrub: true) + linear easing for zero-lag rapid reverse scrolling.
+// 3. Robust clamp height ensuring sticky pinning never unpins early.
 
 import {
   type CSSProperties,
@@ -13,10 +15,12 @@ import {
 } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { SplitText } from "gsap/SplitText";
 
 if (typeof window !== "undefined") {
-  gsap.registerPlugin(ScrollTrigger, SplitText);
+  gsap.registerPlugin(ScrollTrigger);
+  (window as unknown as { ScrollTrigger: typeof ScrollTrigger; gsap: typeof gsap }).ScrollTrigger =
+    ScrollTrigger;
+  (window as unknown as { ScrollTrigger: typeof ScrollTrigger; gsap: typeof gsap }).gsap = gsap;
 }
 
 /* Inline stand-in for @gsap/react's useGSAP */
@@ -58,7 +62,6 @@ function useGSAP(
 
 export type TimelineItem = {
   id: string;
-  /** Shown in mono under the title, e.g. "2023 — Present". */
   period: string;
   title: string;
   detail: string;
@@ -73,8 +76,6 @@ export type EducationTimelineProps = {
   activeColor?: string;
   /** Optional visual shown at the start of the track. */
   visual?: ReactNode;
-  /** Reveal animation duration, in seconds. */
-  duration?: number;
 };
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -110,278 +111,279 @@ function splitLanes(items: TimelineItem[]) {
   return { top, bottom };
 }
 
-/**
- * Reveal windows along the scrub:
- * Compressed to 0% - 50% of the section's scroll so that from 50% to 100%,
- * the final milestone (Quezon City University) stays completely stationary
- * and pinned in view for comfortable reading before scrolling away.
- */
-function revealWindows(count: number): ReadonlyArray<readonly [number, number]> {
-  if (count <= 1) return [[10, 45]];
-  const seg = 44 / count;
-  return Array.from({ length: count }, (_, i) => {
-    const start = 4 + i * seg;
-    const end = Math.min(52, start + seg + 4);
-    return [start, end] as const;
-  });
-}
-
 export default function EducationTimeline({
   items,
   title = "Education",
-  periodLabel = "",
-  textColor = "var(--foreground)",
-  mutedTextColor = "var(--muted-foreground)",
-  activeColor = "var(--brand, #f59e0b)",
+  periodLabel = "2017 — Present",
+  textColor = "var(--foreground, #ffffff)",
+  mutedTextColor = "var(--muted-foreground, #a1a1aa)",
+  activeColor = "#ff5f00",
   visual,
-  duration = 1.0,
 }: EducationTimelineProps) {
   const sectionRef = useRef<HTMLElement>(null);
   const wholeSliderRef = useRef<HTMLDivElement>(null);
   const reducedMotion = usePrefersReducedMotion();
-  const normalizedDuration = Math.max(0.2, duration);
 
   const { top, bottom } = splitLanes(items);
-  const topIds = new Set(top.map((item) => item.id));
 
-  const sectionStyle: CSSProperties = { color: textColor, backgroundColor: "transparent" };
-  const activeStyle: CSSProperties = { backgroundColor: activeColor };
-  const mutedTextStyle: CSSProperties = { color: mutedTextColor };
+  const sectionStyle: CSSProperties = {
+    color: textColor,
+    backgroundColor: "transparent",
+  };
+  const activeStyle: CSSProperties = {
+    backgroundColor: activeColor,
+  };
+  const mutedTextStyle: CSSProperties = {
+    color: mutedTextColor,
+  };
 
-  // Slide track sideways, completing by ~52% of the scroll track
-  // so the remaining 48% acts as a solid PAUSE/HOLD buffer.
   useGSAP(
     () => {
       const section = sectionRef.current;
-      const track = wholeSliderRef.current;
-      if (!section || !track) return;
+      const slider = wholeSliderRef.current;
+      if (!section || !slider) return;
 
-      const isMobile = window.innerWidth < 600;
-      const lineWidth = isMobile ? "75%" : "100%";
-      const slideEnd = isMobile ? "62% bottom" : "52% bottom";
-
-      const distance = () =>
-        Math.max(0, track.scrollWidth - window.innerWidth + (isMobile ? 40 : 140));
-
-      const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: section,
-          start: "top top",
-          end: slideEnd,
-          scrub: true,
-        },
-        defaults: { ease: "none" },
-      });
-
-      tl.fromTo(track, { x: 0 }, { x: () => -distance() });
+      // Compute exact horizontal travel so QCU is centered in the viewport
+      const getSlideDistance = () => {
+        if (!slider) return 0;
+        const qcu = slider.querySelector<HTMLElement>(".milestone-qcu");
+        if (!qcu) {
+          return Math.max(0, slider.scrollWidth - window.innerWidth + 80);
+        }
+        const currentX = (gsap.getProperty(slider, "x") as number) || 0;
+        const sliderLeft = slider.getBoundingClientRect().left - currentX;
+        const qcuLeft = qcu.getBoundingClientRect().left - currentX;
+        const qcuCenter = qcuLeft - sliderLeft + qcu.offsetWidth / 2;
+        const viewportCenter = window.innerWidth / 2;
+        return Math.max(0, qcuCenter - viewportCenter);
+      };
 
       if (reducedMotion) {
-        gsap.set(".journey-line", { width: lineWidth });
-        return;
-      }
-
-      gsap.to(".journey-line", {
-        width: lineWidth,
-        ease: "none",
-        scrollTrigger: {
-          trigger: section,
-          start: isMobile ? "top 25%" : "top 20%",
-          end: slideEnd,
-          scrub: true,
-        },
-      });
-    },
-    { dependencies: [reducedMotion, items.length], scope: sectionRef },
-  );
-
-  // Reveal milestones in chronological order with 3D rolling typography animation
-  useGSAP(
-    () => {
-      const section = sectionRef.current;
-      if (!section || items.length === 0) return;
-
-      if (reducedMotion) {
+        gsap.set(slider, { x: 0 });
+        gsap.set(".journey-line", { scaleX: 1 });
         items.forEach((item) => {
           gsap.set(`.jl-${item.id}`, { scaleY: 1 });
           gsap.set(`.jd-${item.id}`, { scale: 1 });
-          gsap.set(`.title-${item.id}`, { opacity: 1, clearProps: "transform" });
-          gsap.set(`.description-${item.id}`, { opacity: 1, clearProps: "transform" });
-          gsap.set(`.period-${item.id}`, { opacity: 1 });
+          gsap.set(`.content-${item.id}`, { opacity: 1, y: 0 });
         });
         return;
       }
 
-      items.forEach((item) => {
-        gsap.set(`.jl-${item.id}`, { scaleY: 0, transformOrigin: "bottom bottom" });
-        gsap.set(`.jd-${item.id}`, { scale: 0 });
-        gsap.set(`.title-${item.id}`, { opacity: 1 });
-        gsap.set(`.description-${item.id}`, { opacity: 1 });
-        gsap.set(`.period-${item.id}`, { opacity: 0 });
-        if (!topIds.has(item.id)) {
-          gsap.set(`.jl-${item.id}`, { transformOrigin: "top top" });
-        }
+      // Initial state: hide connector lines, dots, and content with GPU acceleration
+      items.forEach((item, index) => {
+        const isTop = index % 2 === 0;
+        gsap.set(`.jl-${item.id}`, {
+          scaleY: 0,
+          transformOrigin: isTop ? "bottom center" : "top center",
+          force3D: true,
+        });
+        gsap.set(`.jd-${item.id}`, { scale: 0, force3D: true });
+        gsap.set(`.content-${item.id}`, { opacity: 0, y: 14, force3D: true });
       });
-
-      // Split text for 3D rolling kinetic animation on characters
-      const titleSplits: InstanceType<typeof SplitText>[] = [];
-      const descSplits: InstanceType<typeof SplitText>[] = [];
-
-      items.forEach((item) => {
-        titleSplits.push(
-          new SplitText(`.title-${item.id}`, { type: "chars, words" }),
-        );
-        descSplits.push(
-          new SplitText(`.description-${item.id}`, { type: "lines, words", mask: "lines" }),
-        );
+      gsap.set(".journey-line", {
+        scaleX: 0,
+        transformOrigin: "left center",
+        force3D: true,
       });
+      gsap.set(slider, { x: 0, force3D: true });
 
-      // Split main title for kinetic roll
-      const mainTitleSplit = new SplitText(".main-education-title", { type: "chars" });
-      gsap.fromTo(
-        mainTitleSplit.chars || [],
-        { rotateX: 90, opacity: 0, transformOrigin: "50% 100%" },
-        {
-          rotateX: 0,
-          opacity: 1,
-          stagger: 0.04,
-          duration: 0.8,
-          ease: "power2.out",
-          scrollTrigger: {
-            trigger: section,
-            start: "top 70%",
-          },
+      // Master Timeline: 1:1 scrub with linear easing ensures instant, zero-lag reverse scroll
+      const masterTl = gsap.timeline({
+        scrollTrigger: {
+          trigger: section,
+          start: "top top",
+          end: "bottom bottom",
+          scrub: true,
+          invalidateOnRefresh: true,
         },
+        defaults: {
+          ease: "none",
+        },
+      });
+
+      // 1. Horizontal track travel: completes by progress 0.64 so QCU sits centered
+      // during the generous 36% scroll buffer before unpinning.
+      masterTl.fromTo(
+        slider,
+        { x: 0 },
+        {
+          x: () => -getSlideDistance(),
+          duration: 0.64,
+          ease: "none",
+          force3D: true,
+        },
+        0,
       );
 
-      const windows = revealWindows(items.length);
+      // 2. Central timeline progress line: scaleX uses GPU transform (no layout reflow)
+      masterTl.fromTo(
+        ".journey-line",
+        { scaleX: 0 },
+        {
+          scaleX: 1,
+          duration: 0.64,
+          ease: "none",
+          force3D: true,
+        },
+        0,
+      );
+
+      // 3. Staggered milestone reveals along the timeline
+      // Belmonte: 0.06, Fatima: 0.28, QCU: 0.50 (fully revealed by 0.58)
+      const revealPoints = [0.06, 0.28, 0.50];
 
       items.forEach((item, index) => {
-        const [startPos, endPos] = windows[index];
-        const chars = titleSplits[index]?.chars || [];
-        const lines = descSplits[index]?.lines || [];
+        const atTime = revealPoints[index] ?? 0.08 + index * 0.22;
+        const lineSelector = `.jl-${item.id}`;
+        const dotSelector = `.jd-${item.id}`;
+        const contentSelector = `.content-${item.id}`;
 
-        // Set perspective container for 3D character roll
-        gsap.set(`.title-${item.id}`, { perspective: 1000, transformStyle: "preserve-3d" });
-
-        const timeline = gsap.timeline({
-          scrollTrigger: {
-            trigger: section,
-            start: `${startPos}% 25%`,
-            end: `${endPos}% 45%`,
-            scrub: true,
-          },
-        });
-
-        // 1. Connection line and dot reveal
-        timeline
-          .to(`.jl-${item.id}`, { scaleY: 1, duration: normalizedDuration * 0.4 })
-          .to(`.jd-${item.id}`, { scale: 1, duration: normalizedDuration * 0.4 }, "<")
-          // 2. 3D Kinetic Roll on characters (TextRoll style)
-          .fromTo(
-            chars,
+        masterTl
+          .to(
+            lineSelector,
             {
-              rotateX: 90,
-              y: topIds.has(item.id) ? 20 : -20,
-              opacity: 0,
-              transformOrigin: topIds.has(item.id) ? "50% 100%" : "50% 0%",
+              scaleY: 1,
+              duration: 0.07,
+              ease: "none",
+              force3D: true,
             },
-            {
-              rotateX: 0,
-              y: 0,
-              opacity: 1,
-              stagger: 0.02,
-              duration: normalizedDuration * 0.8,
-              ease: "power2.out",
-            },
-            "-=0.2",
+            atTime,
           )
-          // 3. Period fade in
-          .to(`.period-${item.id}`, { opacity: 1, duration: 0.3 }, "<")
-          // 4. Description line slide up
-          .fromTo(
-            lines,
-            { y: 30, opacity: 0 },
-            { y: 0, opacity: 1, duration: normalizedDuration * 0.6, ease: "power2.out" },
-            "-=0.3",
+          .to(
+            dotSelector,
+            {
+              scale: 1,
+              duration: 0.07,
+              ease: "none",
+              force3D: true,
+            },
+            atTime,
+          )
+          .to(
+            contentSelector,
+            {
+              opacity: 1,
+              y: 0,
+              duration: 0.08,
+              ease: "none",
+              force3D: true,
+            },
+            atTime + 0.01,
           );
       });
 
-      const handleResize = () => ScrollTrigger.refresh();
+      // 4. Dedicated reading buffer / stationary hold:
+      // Holds the timeline at totalDuration = 1.0, so the remaining 36% of the scroll track
+      // keeps QCU proudly stationary in the center before unpinning.
+      masterTl.to({}, { duration: 0.36 });
+
+      const handleResize = () => {
+        ScrollTrigger.refresh();
+      };
       window.addEventListener("resize", handleResize);
 
+      // Refresh ScrollTrigger after initial mount and when preceding dynamic sections settle
+      const t1 = setTimeout(() => ScrollTrigger.refresh(), 200);
+      const t2 = setTimeout(() => ScrollTrigger.refresh(), 800);
+      const t3 = setTimeout(() => ScrollTrigger.refresh(), 2000);
+
       return () => {
-        titleSplits.forEach((s) => s?.revert?.());
-        descSplits.forEach((s) => s?.revert?.());
-        mainTitleSplit?.revert?.();
         window.removeEventListener("resize", handleResize);
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
       };
     },
-    { dependencies: [normalizedDuration, reducedMotion, items.length], scope: sectionRef },
+    { dependencies: [reducedMotion, items.length], scope: sectionRef },
   );
 
   return (
     <section
       ref={sectionRef}
       id="education"
-      // Extended height to provide the requested pause at the end
-      className="relative h-[280vh] w-full max-[600px]:h-[360vh]"
-      style={sectionStyle}
+      className="relative w-full"
+      style={{
+        ...sectionStyle,
+        height: "clamp(2600px, 340vh, 3800px)",
+      }}
     >
-      {/* Sticky container vertically centered with clean clearance under header */}
-      <div className="sticky top-0 flex h-screen w-full flex-col justify-center overflow-hidden pt-16 max-[600px]:pt-10">
+      <div className="sticky top-0 flex h-screen w-full flex-col justify-center overflow-hidden pt-16">
         <div
           ref={wholeSliderRef}
-          className="mr-[2vw] flex h-[30vw] min-h-[380px] max-h-[72vh] w-max items-center gap-[5vw] px-[5vw] pr-[16vw] max-[600px]:h-[80vh] max-[600px]:px-[7vw]"
+          className="flex h-[32vw] min-h-[380px] max-h-[75vh] w-max items-center gap-[4vw] px-[5vw] pr-[20vw] max-[768px]:h-[80vh] max-[768px]:gap-[5vw] max-[768px]:px-[6vw] max-[768px]:pr-[24vw] will-change-transform"
         >
-          {/* Visual anchor at the start of the track */}
-          <div className="h-full w-[30vw] shrink-0 overflow-hidden rounded-[1vw] border border-line bg-surface max-[600px]:h-[65vw] max-[600px]:w-[85vw] max-[600px]:rounded-[5vw]">
+          {/* Visual card */}
+          <div className="h-full w-[26vw] min-w-[240px] max-w-[340px] shrink-0 overflow-hidden rounded-[1.2vw] border border-line/60 bg-surface/70 backdrop-blur-md max-[768px]:h-[42vw] max-[768px]:w-[68vw] max-[768px]:rounded-2xl">
             {visual ?? (
               <div
-                className="flex h-full w-full flex-col items-center justify-center gap-3"
+                className="relative flex h-full w-full flex-col justify-between p-6 max-[768px]:p-5"
                 style={{
                   backgroundImage:
-                    "radial-gradient(rgba(234,231,222,0.10) 1px, transparent 1.3px)",
-                  backgroundSize: "22px 22px",
+                    "radial-gradient(rgba(234,231,222,0.08) 1px, transparent 1.2px)",
+                  backgroundSize: "20px 20px",
                 }}
               >
-                <span className="font-mono text-[1vw] tracking-[0.18em] text-muted-foreground max-[600px]:text-[3.4vw]">
-                  {periodLabel}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 font-mono text-[0.85vw] tracking-wider text-muted-foreground uppercase max-[768px]:text-[3vw]">
+                    <span className="inline-block size-2 rounded-full bg-amber-500 animate-pulse" />
+                    Milestones
+                  </span>
+                  <span className="rounded-full border border-line bg-surface/80 px-2.5 py-0.5 font-mono text-[0.75vw] text-foreground/80 max-[768px]:text-[2.8vw]">
+                    QCU
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="font-mono text-[0.85vw] text-amber-400 max-[768px]:text-[3vw]">
+                    {periodLabel}
+                  </p>
+                  <p className="font-sans text-[1.25vw] font-semibold leading-tight text-foreground max-[768px]:text-[4.2vw]">
+                    Academic Journey
+                  </p>
+                  <p className="font-sans text-[0.85vw] text-muted-foreground max-[768px]:text-[3vw]">
+                    BS Computer Science
+                  </p>
+                </div>
               </div>
             )}
           </div>
 
-          <div className="relative h-full w-max shrink-0">
+          {/* Timeline Track */}
+          <div className="relative h-full w-max">
             {/* Center rail */}
-            <div className="absolute top-1/2 left-0 flex h-fit w-full -translate-y-1/2 items-center">
+            <div className="absolute top-1/2 left-0 flex h-fit w-full -translate-y-1/2 items-center pointer-events-none">
               <div
-                className="h-[0.8vw] w-[0.8vw] rounded-full max-[600px]:h-[2vw] max-[600px]:w-[2vw]"
+                className="h-[0.8vw] w-[0.8vw] rounded-full max-[768px]:h-[2vw] max-[768px]:w-[2vw] shrink-0"
                 style={activeStyle}
               />
-              <div className="journey-line h-px w-[0%] rounded-full" style={activeStyle} />
               <div
-                className="h-[0.8vw] w-[0.8vw] rounded-full max-[600px]:h-[2vw] max-[600px]:w-[2vw]"
+                className="journey-line h-px w-full origin-left rounded-full will-change-transform"
+                style={activeStyle}
+              />
+              <div
+                className="h-[0.8vw] w-[0.8vw] rounded-full max-[768px]:h-[2vw] max-[768px]:w-[2vw] shrink-0"
                 style={activeStyle}
               />
             </div>
 
-            {/* Upper lane */}
-            <div className="flex h-1/2 w-max items-center justify-start gap-[0.5vw]">
-              <div className="h-full w-[20vw] shrink-0 pt-[2vw] max-[600px]:h-fit max-[600px]:pt-[5vw]">
-                <h2 className="main-education-title w-[65%] text-[3vw] leading-[0.95] max-[600px]:text-[8.5vw] [perspective:1000px] [transform-style:preserve-3d]">
+            {/* Upper Lane */}
+            <div className="flex h-1/2 w-max items-center justify-start gap-[1vw] max-[768px]:gap-[2vw]">
+              <div className="flex h-full min-w-max items-center pt-[2vw] pr-[2.5vw] max-[768px]:h-fit max-[768px]:pt-[4vw] max-[768px]:pr-[4vw]">
+                <h2 className="main-education-title whitespace-nowrap font-sans text-[3.2vw] font-bold tracking-tight text-foreground max-[768px]:text-[8vw]">
                   {title}
                 </h2>
               </div>
 
-              <div className="flex h-full w-max gap-x-[12vw] max-[600px]:gap-x-[36vw]">
+              {/* Upper Milestones (Belmonte & QCU) */}
+              <div className="flex h-full w-max gap-x-[16vw] max-[768px]:gap-x-[24vw]">
                 {top.map((item) => (
                   <div
                     key={`top-${item.id}`}
-                    className="relative h-full w-[32vw] shrink-0 px-[3vw] max-[600px]:flex max-[600px]:w-[70vw] max-[600px]:flex-col max-[600px]:px-[7vw]"
+                    className={`milestone-${item.id} relative flex h-full w-[30vw] min-w-[280px] max-w-[420px] shrink-0 flex-col justify-end pb-[2vw] px-[2vw] max-[768px]:w-[74vw] max-[768px]:min-w-[240px] max-[768px]:max-w-[340px] max-[768px]:pb-[4vw] max-[768px]:pl-[4vw] max-[768px]:pr-[2vw] will-change-transform`}
                   >
-                    <div className="absolute top-0 bottom-0 left-0 h-full w-full">
+                    <div className="absolute top-0 bottom-0 left-0 h-full w-full pointer-events-none">
                       <div
-                        className={`jd-${item.id} relative size-[1vw] translate-x-[-50%] aspect-square rounded-full max-[600px]:size-[2.5vw]`}
+                        className={`jd-${item.id} relative size-[0.9vw] -translate-x-1/2 aspect-square rounded-full max-[768px]:size-[2.4vw]`}
                         style={activeStyle}
                       />
                       <div
@@ -390,18 +392,15 @@ export default function EducationTimeline({
                       />
                     </div>
 
-                    {/* Original clean layout - NO BOXES */}
-                    <div className="space-y-[0.6vw] pb-3">
-                      <h3
-                        className={`title-${item.id} text-[2vw] leading-[1.05] max-[600px]:text-[5.4vw] inline-block [perspective:1000px] [transform-style:preserve-3d]`}
-                      >
+                    <div className={`content-${item.id} space-y-[0.6vw] pl-[1.5vw] max-[768px]:space-y-[1.5vw] max-[768px]:pl-[3.5vw]`}>
+                      <h3 className="font-sans text-[1.8vw] font-semibold leading-[1.15] text-foreground max-[768px]:text-[4.8vw]">
                         {item.title}
                       </h3>
-                      <p className={`period-${item.id} font-mono text-[0.95vw] text-muted-foreground max-[600px]:text-[3.2vw]`}>
+                      <p className="font-mono text-[0.9vw] text-amber-400/90 max-[768px]:text-[3.2vw]">
                         {item.period}
                       </p>
                       <p
-                        className={`description-${item.id} w-[92%] text-[1.35vw] leading-[1.3] max-[600px]:w-[92%] max-[600px]:text-[4.2vw]`}
+                        className="w-[92%] text-[1.2vw] leading-[1.35] text-muted-foreground max-[768px]:w-[95%] max-[768px]:text-[3.8vw] max-[768px]:leading-[1.4]"
                         style={mutedTextStyle}
                       >
                         {item.detail}
@@ -412,46 +411,44 @@ export default function EducationTimeline({
               </div>
             </div>
 
-            {/* Lower lane */}
+            {/* Lower Lane */}
             <div className="flex h-1/2 w-max items-center justify-start">
-              <div className="h-full w-[30vw] shrink-0 pt-[2vw] max-[600px]:h-fit max-[600px]:w-[30%] max-[600px]:pt-[5vw]">
+              <div className="flex h-full min-w-max items-center pt-[2vw] pr-[2.5vw] max-[768px]:h-fit max-[768px]:pt-[4vw] max-[768px]:pr-[4vw]">
                 <p
-                  className="text-[1.65vw] leading-none max-[600px]:text-[4.2vw]"
+                  className="whitespace-nowrap font-mono text-[1.4vw] tracking-wider text-muted-foreground max-[768px]:text-[3.8vw]"
                   style={mutedTextStyle}
                 >
                   {periodLabel}
                 </p>
               </div>
 
-              <div className="ml-[4vw] flex h-full w-max gap-x-[16vw] max-[600px]:ml-[7vw] max-[600px]:gap-x-[36vw]">
+              {/* Lower Milestones (Fatima) - positioned halfway between Belmonte and QCU */}
+              <div className="ml-[14vw] flex h-full w-max gap-x-[16vw] max-[768px]:ml-[49vw] max-[768px]:gap-x-[24vw]">
                 {bottom.map((item) => (
                   <div
                     key={`bottom-${item.id}`}
-                    className="relative h-full w-[28vw] shrink-0 px-[3vw] max-[600px]:w-[70vw] max-[600px]:px-[7vw]"
+                    className={`milestone-${item.id} relative flex h-full w-[28vw] min-w-[280px] max-w-[420px] shrink-0 flex-col justify-start pt-[2vw] px-[2vw] max-[768px]:w-[74vw] max-[768px]:min-w-[240px] max-[768px]:max-w-[340px] max-[768px]:pt-[4vw] max-[768px]:pl-[4vw] max-[768px]:pr-[2vw] will-change-transform`}
                   >
-                    <div className="absolute bottom-[-1%] left-0 h-full w-full">
+                    <div className="absolute bottom-[-1%] left-0 h-full w-full pointer-events-none">
                       <div
-                        className={`jl-${item.id} h-[94%] w-px origin-top rounded-full max-[600px]:h-full`}
+                        className={`jl-${item.id} h-[94%] w-px origin-top rounded-full max-[768px]:h-full`}
                         style={activeStyle}
                       />
                       <div
-                        className={`jd-${item.id} relative size-[1vw] translate-x-[-50%] aspect-square rounded-full max-[600px]:size-[2.5vw]`}
+                        className={`jd-${item.id} relative size-[0.9vw] -translate-x-1/2 aspect-square rounded-full max-[768px]:size-[2.4vw]`}
                         style={activeStyle}
                       />
                     </div>
 
-                    {/* Original clean layout - NO BOXES */}
-                    <div className="flex h-full w-full flex-col justify-end space-y-[0.6vw] pt-3">
-                      <h3
-                        className={`title-${item.id} text-[2vw] leading-[1.05] max-[600px]:text-[5.4vw] inline-block [perspective:1000px] [transform-style:preserve-3d]`}
-                      >
+                    <div className={`content-${item.id} flex h-full w-full flex-col justify-end space-y-[0.6vw] pl-[1.5vw] max-[768px]:space-y-[1.5vw] max-[768px]:pl-[3.5vw]`}>
+                      <h3 className="font-sans text-[1.8vw] font-semibold leading-[1.15] text-foreground max-[768px]:text-[4.8vw]">
                         {item.title}
                       </h3>
-                      <p className={`period-${item.id} font-mono text-[0.95vw] text-muted-foreground max-[600px]:text-[3.2vw]`}>
+                      <p className="font-mono text-[0.9vw] text-amber-400/90 max-[768px]:text-[3.2vw]">
                         {item.period}
                       </p>
                       <p
-                        className={`description-${item.id} w-[92%] text-[1.35vw] leading-[1.3] max-[600px]:w-[92%] max-[600px]:text-[4.2vw]`}
+                        className="w-[92%] text-[1.2vw] leading-[1.35] text-muted-foreground max-[768px]:w-[95%] max-[768px]:text-[3.8vw] max-[768px]:leading-[1.4]"
                         style={mutedTextStyle}
                       >
                         {item.detail}
@@ -467,3 +464,4 @@ export default function EducationTimeline({
     </section>
   );
 }
+

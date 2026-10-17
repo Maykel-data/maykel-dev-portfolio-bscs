@@ -11,104 +11,50 @@ interface SplineSceneProps {
 
 interface SplineRuntimeApp {
   requestRender?: () => void;
+  stop?: () => void;
+  play?: () => void;
 }
 
 export function SplineScene({ scene, className }: SplineSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const splineAppRef = useRef<SplineRuntimeApp | null>(null);
-  // The 3D scene is expensive (runtime + ~1.4 MB of cross-origin assets), so
-  // it only mounts - and therefore only downloads - once its container gets
-  // close to the viewport. It stays mounted afterwards.
-  const [nearViewport, setNearViewport] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
+  // Mount immediately on client hydration so WebGPU/WebGL shaders compile at page load
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container || nearViewport) return;
-    if (typeof IntersectionObserver === "undefined") {
-      // Ancient-browser fallback: defer one tick so we never setState
-      // synchronously inside the effect body.
-      const t = window.setTimeout(() => setNearViewport(true), 0);
-      return () => window.clearTimeout(t);
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          io.disconnect();
-          setNearViewport(true);
-        }
-      },
-      { rootMargin: "0px 0px 500px 0px" },
-    );
-    io.observe(container);
-    return () => io.disconnect();
-  }, [nearViewport]);
+    setMounted(true);
+  }, []);
 
-  // Pointer forwarding is scoped to this card. The previous implementation
-  // listened on window, measured canvas geometry on every pointer move and
-  // every scroll, and dispatched synthetic events page-wide. Native canvas
-  // hover-tracking covers the canvas itself; this only extends the follow to
-  // the surrounding panel, with no layout reads at all.
+  const [isScrolling, setIsScrolling] = useState(false);
+
+  // Suppress pointer events during active scroll to free 100% of GPU for 120fps scrolling
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container || !nearViewport) return;
-    const reduced = window
-      .matchMedia("(prefers-reduced-motion: reduce)")
-      .matches;
-
-    const onMove = (e: MouseEvent | PointerEvent) => {
-      if (reduced) return;
-      const canvas = container.querySelector("canvas");
-      if (!canvas || e.target === canvas) return;
-      const pointerEvent = e as PointerEvent;
-      const pointerEv = new PointerEvent("pointermove", {
-        bubbles: true,
-        cancelable: true,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        screenX: e.screenX,
-        screenY: e.screenY,
-        pointerId: pointerEvent.pointerId || 1,
-        pointerType: pointerEvent.pointerType || "mouse",
-        isPrimary: true,
-        buttons: e.buttons,
-      });
-      Object.defineProperty(pointerEv, "pageX", { value: e.pageX, configurable: true });
-      Object.defineProperty(pointerEv, "pageY", { value: e.pageY, configurable: true });
-      canvas.dispatchEvent(pointerEv);
-
-      const mouseEv = new MouseEvent("mousemove", {
-        bubbles: true,
-        cancelable: true,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        screenX: e.screenX,
-        screenY: e.screenY,
-        buttons: e.buttons,
-      });
-      Object.defineProperty(mouseEv, "pageX", { value: e.pageX, configurable: true });
-      Object.defineProperty(mouseEv, "pageY", { value: e.pageY, configurable: true });
-      canvas.dispatchEvent(mouseEv);
-
-      splineAppRef.current?.requestRender?.();
+    let timer: ReturnType<typeof setTimeout>;
+    const handleScroll = () => {
+      setIsScrolling(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        setIsScrolling(false);
+      }, 120);
     };
 
-    container.addEventListener("pointermove", onMove, { passive: true });
-    container.addEventListener("mousemove", onMove, { passive: true });
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
-      container.removeEventListener("pointermove", onMove);
-      container.removeEventListener("mousemove", onMove);
+      clearTimeout(timer);
+      window.removeEventListener("scroll", handleScroll);
     };
-  }, [nearViewport]);
+  }, []);
 
   const handleSplineLoad = (app: SplineRuntimeApp) => {
-    // Window-level ("global") Spline events stay off: the robot tracks the
-    // cursor over its own card, which the scoped listeners above cover.
     splineAppRef.current = app;
   };
 
   return (
-    <div ref={containerRef} className={`relative ${className || ""}`}>
-      {nearViewport ? (
+    <div
+      ref={containerRef}
+      className={`relative ${className || ""} ${isScrolling ? "pointer-events-none" : ""}`}
+    >
+      {mounted ? (
         <Suspense
           fallback={
             <div className="flex h-full w-full items-center justify-center">
@@ -119,6 +65,7 @@ export function SplineScene({ scene, className }: SplineSceneProps) {
           <Spline
             scene={scene}
             onLoad={handleSplineLoad}
+            renderOnDemand={true}
             className="h-full w-full pointer-events-auto"
           />
         </Suspense>

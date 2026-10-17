@@ -311,15 +311,39 @@ type Painted = HTMLCanvasElement;
 const artCache = new Map<string, Promise<Painted>>();
 const queue: { job: ArtJob; priority: number; done: (c: Painted) => void }[] = [];
 let pumping = false;
+let isScrolling = false;
+let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "scroll",
+    () => {
+      isScrolling = true;
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        isScrolling = false;
+        if (queue.length && !pumping) pump();
+      }, 150);
+    },
+    { passive: true },
+  );
+}
 
 function pump() {
   if (pumping) return;
+  if (isScrolling) return;
   pumping = true;
+
   const tick = () => {
-    const until = performance.now() + 7;
+    if (isScrolling) {
+      pumping = false;
+      return;
+    }
+
+    const until = performance.now() + 4;
     while (queue.length && performance.now() < until) {
       const head = queue[0];
-      if (head.job.step(4)) {
+      if (head.job.step(2)) {
         queue.shift();
         const c = document.createElement("canvas");
         c.width = head.job.width;
@@ -332,9 +356,13 @@ function pump() {
         head.done(c);
       }
     }
-    if (queue.length) requestAnimationFrame(tick);
-    else pumping = false;
+    if (queue.length && !isScrolling) {
+      requestAnimationFrame(tick);
+    } else {
+      pumping = false;
+    }
   };
+
   requestAnimationFrame(tick);
 }
 
