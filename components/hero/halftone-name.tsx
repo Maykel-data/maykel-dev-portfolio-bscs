@@ -111,13 +111,10 @@ const HN_CSS = `
 }
 .hn-root canvas {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
   display: block;
   max-width: none;
   background: transparent !important;
-  pointer-events: auto;
+  pointer-events: none;
 }
 .hn-sr {
   position: absolute;
@@ -200,6 +197,9 @@ export default function HalftoneName({
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let w = 0;
     let h = 0;
+    let tw = 0;
+    let th = 0;
+    let pad = 0;
     let dpr = 1;
     let px = -1e5;
     let py = -1e5;
@@ -226,8 +226,10 @@ export default function HalftoneName({
     const layout = () => {
       const o = opts.current;
       const rect = root.getBoundingClientRect();
-      w = Math.max(1, Math.round(rect.width));
-      if (w < 10) return;
+      tw = Math.max(1, Math.round(rect.width));
+      if (tw < 10) return;
+      pad = Math.min(96, Math.max(0, o.radius || 0) + 16);
+      w = tw + pad * 2;
 
       const family = resolveFamily();
 
@@ -248,7 +250,7 @@ export default function HalftoneName({
 
       // Target font size: fit longest line comfortably, scaled up to maxFontSize (84px) on desktop
       const paddingX = 4;
-      const availableWidth = w - paddingX * 2;
+      const availableWidth = tw - paddingX * 2;
       const fittedSize = (availableWidth * 0.98 / maxLen100) * 100;
       const maxLimit = o.maxFontSize ?? 84;
       const fontSize = Math.min(maxLimit, Math.max(34, Math.floor(fittedSize)));
@@ -269,7 +271,13 @@ export default function HalftoneName({
       if (Math.abs(rect.height - computedHeight) > 1) {
         root.style.height = `${computedHeight}px`;
       }
-      h = computedHeight;
+      th = computedHeight;
+      h = th + pad * 2;
+
+      canvas.style.left = `${-pad}px`;
+      canvas.style.top = `${-pad}px`;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
 
       dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.round(w * dpr);
@@ -287,11 +295,11 @@ export default function HalftoneName({
       m.textBaseline = "alphabetic";
 
       o.lines.forEach((line, idx) => {
-        const lineY = cap + 6 + idx * lineStep;
-        let lineX = paddingX;
+        const lineY = pad + cap + 6 + idx * lineStep;
+        let lineX = paddingX + pad;
         if (o.align === "center") {
           const lineWidth = (lineLengths100[idx] / 100) * fontSize;
-          lineX = Math.max(0, (w - lineWidth) / 2);
+          lineX = pad + Math.max(0, (tw - lineWidth) / 2);
         }
         m.fillText(line, lineX, lineY);
       });
@@ -352,6 +360,8 @@ export default function HalftoneName({
       const r = o.interactive && !reduced ? Math.max(0, o.radius) : 0;
       const ringAge = ring.t < 0 ? 1e9 : now - ring.t;
       const ringR = ringAge * 0.9;
+      const fade0 = Math.max(24, (o.radius || 80) * 0.55);
+      const fadeSpan = fade0;
       let moving = false;
 
       for (let i = 0; i < count; i++) {
@@ -401,8 +411,14 @@ export default function HalftoneName({
           dots[j + 3] = vy;
         }
 
+        const disp = Math.abs(x - hx) + Math.abs(y - hy);
+        const alpha =
+          disp <= fade0 ? 1 : Math.max(0, 1 - (disp - fade0) / fadeSpan);
+        if (alpha <= 0) continue;
+
         // Warm color transition based on displacement from rest
         const k = warmthFactor(x, y, hx, hy, 28);
+        ctx.globalAlpha = alpha;
         ctx.fillStyle =
           k > 0.02
             ? `rgb(${Math.round(inkRgb[0] + (warmRgb[0] - inkRgb[0]) * k)}, ${Math.round(
@@ -413,10 +429,11 @@ export default function HalftoneName({
         ctx.beginPath();
         ctx.arc(x, y, dots[j + 6], 0, 6.2832);
         ctx.fill();
+        ctx.globalAlpha = 1;
       }
 
-      // Sleep loop when all dots are resting
-      awake = moving || ringAge < 900 || px > -1e4;
+      // Sleep loop when all dots are resting (any pointermove re-wakes it)
+      awake = moving || ringAge < 900;
     };
 
     const loop = (now: number) => {
@@ -432,16 +449,26 @@ export default function HalftoneName({
     };
 
     const toLocal = (e: PointerEvent): [number, number] => {
-      const b = canvas.getBoundingClientRect();
-      return [e.clientX - b.left, e.clientY - b.top];
+      const b = root.getBoundingClientRect();
+      return [e.clientX - b.left + pad, e.clientY - b.top + pad];
     };
 
     const onMove = (e: PointerEvent) => {
-      if (!opts.current.interactive) return;
-      const p = toLocal(e);
-      px = p[0];
-      py = p[1];
-      wake();
+      if (!opts.current.interactive || reduced) return;
+      const b = root.getBoundingClientRect();
+      const lx = e.clientX - b.left;
+      const ly = e.clientY - b.top;
+      const z = Math.max(60, (opts.current.radius || 0) + 40);
+      const near = lx >= -z && lx <= tw + z && ly >= -z && ly <= th + z;
+      if (near) {
+        px = lx + pad;
+        py = ly + pad;
+        wake();
+      } else if (px > -1e4) {
+        px = -1e5;
+        py = -1e5;
+        wake();
+      }
     };
 
     const onLeave = () => {
@@ -461,8 +488,9 @@ export default function HalftoneName({
     draw(performance.now());
     wake();
 
-    root.addEventListener("pointermove", onMove);
-    root.addEventListener("pointerleave", onLeave);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onLeave);
+    window.addEventListener("blur", onLeave);
     root.addEventListener("pointerdown", onDown);
 
     const ro = new ResizeObserver(() => {
@@ -491,8 +519,9 @@ export default function HalftoneName({
       cancelAnimationFrame(raf);
       ro.disconnect();
       io.disconnect();
-      root.removeEventListener("pointermove", onMove);
-      root.removeEventListener("pointerleave", onLeave);
+      window.removeEventListener("pointermove", onMove);
+      document.documentElement.removeEventListener("pointerleave", onLeave);
+      window.removeEventListener("blur", onLeave);
       root.removeEventListener("pointerdown", onDown);
     };
   }, [key]);
